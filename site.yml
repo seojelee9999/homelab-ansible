@@ -1,0 +1,15 @@
+---
+- name: Prepare all nodes
+  ansible.builtin.import_playbook: prepare_cka.yml
+
+- name: Initialize the control plane
+  ansible.builtin.import_playbook: init_control_plane.yml
+
+- name: Install Calico
+  ansible.builtin.import_playbook: install_cni.yml
+
+- name: Join workers
+  ansible.builtin.import_playbook: join_workers.yml
+
+- name: Verify the cluster
+  ansible.builtin.import_playbook: verify_cluster.yml

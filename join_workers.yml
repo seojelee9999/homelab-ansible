@@ -1,0 +1,84 @@
+---
+- name: Join workers to the initialized control plane
+  hosts: kube_node
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  vars_files:
+    - "{{ playbook_dir }}/cluster_vars.yml"
+  vars:
+    control_plane_host: "{{ groups['kube_control_plane'][0] }}"
+  tasks:
+    - name: Check existing worker registration
+      ansible.builtin.stat:
+        path: /etc/kubernetes/kubelet.conf
+      register: worker_kubelet_conf
+
+    - name: Join an unregistered worker
+      when: not worker_kubelet_conf.stat.exists
+      block:
+        - name: Create a short-lived join token on the control plane
+          ansible.builtin.command:
+            argv:
+              - kubeadm
+              - token
+              - create
+              - --ttl=30m
+              - "--kubeconfig={{ kubernetes_admin_conf }}"
+          delegate_to: "{{ control_plane_host }}"
+          register: worker_join_token
+          no_log: true
+
+        - name: Compute the CA public key discovery hash
+          ansible.builtin.shell: |
+            set -o pipefail
+            openssl x509 -pubkey -in /etc/kubernetes/pki/ca.crt -noout |
+            openssl pkey -pubin -outform DER |
+            openssl dgst -sha256 -hex | awk '{print $NF}'
+          args:
+            executable: /bin/bash
+          delegate_to: "{{ control_plane_host }}"
+          register: control_plane_ca_hash
+          changed_when: false
+
+        - name: Create bootstrap configuration directory
+          ansible.builtin.file:
+            path: "{{ kubernetes_bootstrap_dir }}"
+            state: directory
+            mode: "0700"
+
+        - name: Render the private join configuration
+          ansible.builtin.template:
+            src: templates/kubeadm-join.yaml.j2
+            dest: "{{ kubernetes_bootstrap_dir }}/kubeadm-join.yaml"
+            mode: "0600"
+            validate: kubeadm config validate --config %s
+          no_log: true
+
+        - name: Join the worker
+          ansible.builtin.command:
+            argv:
+              - kubeadm
+              - join
+              - --config
+              - "{{ kubernetes_bootstrap_dir }}/kubeadm-join.yaml"
+            creates: /etc/kubernetes/kubelet.conf
+          no_log: true
+
+      always:
+        - name: Remove the join configuration containing the token
+          ansible.builtin.file:
+            path: "{{ kubernetes_bootstrap_dir }}/kubeadm-join.yaml"
+            state: absent
+
+        - name: Revoke the temporary join token
+          ansible.builtin.command:
+            argv:
+              - kubeadm
+              - token
+              - delete
+              - "{{ worker_join_token.stdout.split('.')[0] }}"
+              - "--kubeconfig={{ kubernetes_admin_conf }}"
+          delegate_to: "{{ control_plane_host }}"
+          when: worker_join_token is defined and worker_join_token.stdout | default('') | length > 0
+          no_log: true

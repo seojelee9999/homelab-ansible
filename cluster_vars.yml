@@ -1,0 +1,18 @@
+---
+# Loaded explicitly by each bootstrap playbook through vars_files.
+kubernetes_minor_version: "v1.35"
+kubernetes_pod_subnet: "10.244.0.0/16"
+kubernetes_service_subnet: "10.96.0.0/12"
+kubernetes_dns_domain: "cluster.local"
+kubernetes_cri_socket: "unix:///run/containerd/containerd.sock"
+kubernetes_node_name: "{{ inventory_hostname }}"
+kubernetes_node_ip: "{{ ansible_host }}"
+kubernetes_api_endpoint: "{{ hostvars[groups['kube_control_plane'][0]].ansible_host }}:6443"
+kubernetes_admin_conf: /etc/kubernetes/admin.conf
+kubernetes_admin_user: "{{ ansible_user | default('ubuntu') }}"
+kubernetes_bootstrap_dir: /etc/kubernetes/cka-bootstrap
+kubernetes_wait_timeout: 300s
+
+# Official Calico manifest: pinned version and download checksum.
+calico_version: "v3.33.0"
+calico_manifest_checksum: "sha256:2de8f47595fb9c41b3f47d7b767a1f8e72ecf84057af834738ff12689a234da5"

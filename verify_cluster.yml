@@ -1,0 +1,52 @@
+---
+- name: Verify node and system component readiness
+  hosts: kube_control_plane[0]
+  become: true
+  gather_facts: false
+  vars_files:
+    - "{{ playbook_dir }}/cluster_vars.yml"
+  environment:
+    KUBECONFIG: "{{ kubernetes_admin_conf }}"
+  tasks:
+    - name: Wait for every inventory node to be Ready
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - wait
+          - "node/{{ item }}"
+          - --for=condition=Ready
+          - "--timeout={{ kubernetes_wait_timeout }}"
+      loop: "{{ groups['k8s_cluster'] }}"
+      changed_when: false
+
+    - name: Wait for Calico, CoreDNS, and kube-proxy rollouts
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - -n
+          - kube-system
+          - rollout
+          - status
+          - "{{ item }}"
+          - "--timeout={{ kubernetes_wait_timeout }}"
+      loop:
+        - daemonset/calico-node
+        - deployment/calico-kube-controllers
+        - deployment/coredns
+        - daemonset/kube-proxy
+      changed_when: false
+
+    - name: Read node and system Pod status
+      ansible.builtin.command: "{{ item }}"
+      loop:
+        - kubectl get nodes -o wide
+        - kubectl -n kube-system get pods -o wide
+      register: cluster_status
+      changed_when: false
+
+    - name: Show cluster status
+      ansible.builtin.debug:
+        msg: "{{ item.stdout_lines }}"
+      loop: "{{ cluster_status.results }}"
+      loop_control:
+        label: "{{ item.item }}"

@@ -1,0 +1,40 @@
+---
+- name: Install pinned Calico networking
+  hosts: kube_control_plane[0]
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  vars_files:
+    - "{{ playbook_dir }}/cluster_vars.yml"
+  environment:
+    KUBECONFIG: "{{ kubernetes_admin_conf }}"
+  tasks:
+    - name: Create the Calico manifest directory
+      ansible.builtin.file:
+        path: "{{ kubernetes_bootstrap_dir }}/calico"
+        state: directory
+        mode: "0700"
+
+    - name: Download the official versioned Calico manifest
+      ansible.builtin.get_url:
+        url: "https://raw.githubusercontent.com/projectcalico/calico/{{ calico_version }}/manifests/calico.yaml"
+        dest: "{{ kubernetes_bootstrap_dir }}/calico/calico.yaml"
+        checksum: "{{ calico_manifest_checksum }}"
+        mode: "0600"
+
+    - name: Render the Pod CIDR and node IP configuration
+      ansible.builtin.template:
+        src: templates/calico-kustomization.yaml.j2
+        dest: "{{ kubernetes_bootstrap_dir }}/calico/kustomization.yaml"
+        mode: "0600"
+
+    - name: Apply Calico with server-side apply for large CRDs
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - apply
+          - --server-side
+          - --field-manager=cka-bootstrap
+          - -k
+          - "{{ kubernetes_bootstrap_dir }}/calico"
+      changed_when: true
